@@ -1,0 +1,3 @@
+com\swiftpay\common\event\PaymentCompletedEvent$PaymentCompletedEventBuilder.class
+com\swiftpay\common\event\PaymentCompletedEvent.class
+com\swiftpay\common\event\PaymentInitiatedEvent.class

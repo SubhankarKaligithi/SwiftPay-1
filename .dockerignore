@@ -1,0 +1,13 @@
+# Build output (jars are rebuilt inside the image)
+**/target/
+
+# IDE / VCS
+.git/
+.github/
+.idea/
+**/*.iml
+
+# Local infra / misc
+k8s/
+*.exe
+**/*.log

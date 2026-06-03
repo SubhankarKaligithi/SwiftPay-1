@@ -1,0 +1,149 @@
+name: SwiftPay CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+  pull_request:
+    branches:
+      - main
+      - master
+
+env:
+  JAVA_VERSION: 21
+
+jobs:
+
+  build-and-test:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Cache Maven Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: maven-
+
+      - name: Build Common Module
+        run: mvn -B clean install -pl common -am
+
+      - name: Build Entire Project
+        run: mvn -B clean verify
+
+      - name: Run Unit Tests
+        run: mvn test
+
+      - name: Upload Test Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/target/surefire-reports/*
+            **/target/failsafe-reports/*
+
+  docker-build:
+
+    needs: build-and-test
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Login To DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Gateway Image
+        run: |
+          docker build \
+          -t ${{ secrets.DOCKER_USERNAME }}/gateway-service:latest \
+          ./gateway-service
+
+      - name: Build Ledger Image
+        run: |
+          docker build \
+          -t ${{ secrets.DOCKER_USERNAME }}/ledger-service:latest \
+          ./ledger-service
+
+      - name: Build Analytics Image
+        run: |
+          docker build \
+          -t ${{ secrets.DOCKER_USERNAME }}/analytics-service:latest \
+          ./analytics-service
+
+      - name: Push Gateway Image
+        run: |
+          docker push \
+          ${{ secrets.DOCKER_USERNAME }}/gateway-service:latest
+
+      - name: Push Ledger Image
+        run: |
+          docker push \
+          ${{ secrets.DOCKER_USERNAME }}/ledger-service:latest
+
+      - name: Push Analytics Image
+        run: |
+          docker push \
+          ${{ secrets.DOCKER_USERNAME }}/analytics-service:latest
+
+  kubernetes-deploy:
+
+    needs: docker-build
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Setup Kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+
+      - name: Deploy Namespace
+        run: kubectl apply -f k8s/namespace.yaml
+
+      - name: Deploy PostgreSQL
+        run: kubectl apply -f k8s/postgres.yaml
+
+      - name: Deploy Redis
+        run: kubectl apply -f k8s/redis.yaml
+
+      - name: Deploy Kafka
+        run: kubectl apply -f k8s/kafka.yaml
+
+      - name: Deploy Gateway Service
+        run: kubectl apply -f k8s/gateway-service.yaml
+
+      - name: Deploy Ledger Service
+        run: kubectl apply -f k8s/ledger-service.yaml
+
+      - name: Deploy Analytics Service
+        run: kubectl apply -f k8s/analytics-service.yaml
+
+      - name: Verify Deployment
+        run: kubectl get all -n swiftpay
